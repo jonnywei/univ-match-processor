@@ -22,38 +22,43 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	univPath := currDir + "/" + "机构排名.csv"
-	univList := buildUniversityList(univPath)
+	genPath := currDir + "/new_dir"
+	os.MkdirAll(genPath, os.ModeDir)
+	totalUnviList := buildUniversityList(univPath)
 	for _, f := range files {
 		var fileName = f.Name()
-		if !strings.HasSuffix(fileName, ".csv") || strings.EqualFold(fileName,"机构排名.csv") {
+		if !strings.HasSuffix(fileName, ".csv") || strings.EqualFold(fileName, "机构排名.csv") {
 			continue
 		}
 
 		fmt.Println("process file " + fileName)
 		srcPath := currDir + "/" + fileName
-		processOneFile(&univList,srcPath)
+		dstPath := genPath + "/机构排名-" + fileName
+		univList := buildUniversityList(univPath)
+		processOneFile(&totalUnviList, univList, srcPath, dstPath)
 	}
-	writeUniversityList(&univList,univPath)
+	writeUniversityList(&totalUnviList, univPath)
 	fmt.Println("Press any key to close")
 	bufio.NewReader(os.Stdin).ReadRune()
 
 }
 
 type University struct {
-	name string
-	aliasName []string
-	country string
+	name        string
+	aliasName   []string
+	country     string
 	similarName map[string]string
-	count int
+	count       int
 }
 
 type Country struct {
-	name string
+	name      string
 	aliasName []string
 }
 
-func buildUniversityList(srcPath string,) []University {
+func buildUniversityList(srcPath string) []University {
 	var univList []University
 	records, _ := readCsvFile(srcPath)
 	for index := range records {
@@ -62,32 +67,32 @@ func buildUniversityList(srcPath string,) []University {
 		}
 		row := records[index]
 		name := records[index][0]
-		u:= University{
-			name: name,
-			count: 0,
+		u := University{
+			name:        name,
+			count:       0,
 			similarName: make(map[string]string),
 		}
 		if len(row) >= 2 {
 			u.country = records[index][1]
 		}
 		if len(row) >= 3 {
-			 u.aliasName = strings.Split(records[index][2],";")
+			u.aliasName = strings.Split(records[index][2], ";")
 		}
 
-		univList =append(univList,u)
+		univList = append(univList, u)
 	}
 	return univList
 }
 
-func writeUniversityList(univList *[]University, dstPath string)  {
+func writeUniversityList(univList *[]University, dstPath string) {
 	var results = make([][]string, len(*univList)+1)
-	row :=[]string{"UnivFullName"+time.Now().Format("15:04:05"),"Country","UnivAliasName匹配用","UnivSimilarName推断用","count"}
-	results[0] =row
-	for index,u := range *univList {
-		row :=[]string{
+	row := []string{"UnivFullName" + time.Now().Format("15:04:05"), "Country", "UnivAliasName", "UnivSimilarName", "count"}
+	results[0] = row
+	for index, u := range *univList {
+		row := []string{
 			u.name,
 			u.country,
-			strings.Join(u.aliasName,";"),
+			strings.Join(u.aliasName, ";"),
 			printMapKey(u.similarName),
 			//fmt.Sprintf("%v",u.similarName),
 			fmt.Sprintf("%d", u.count)}
@@ -96,10 +101,10 @@ func writeUniversityList(univList *[]University, dstPath string)  {
 	writeCsvFile(dstPath, results)
 }
 
-func processOneFile(univList *[]University,srcPath string) {
+func processOneFile(univList *[]University, currentUnivList []University, srcPath string, dstPath string) {
 
 	records, _ := readCsvFile(srcPath)
-
+	coutinue_empty := 0
 	////row = append(row, "Univ_Sem", "Univ_Sem", "Univ_Sem")
 	//row = append(row, FormatBool(true), FormatBool(true), FormatBool(true))
 	//results[index] = row
@@ -108,18 +113,26 @@ func processOneFile(univList *[]University,srcPath string) {
 			continue
 		}
 		if len(records[index][0]) == 0 {
-			fmt.Printf("line %d: empty break\n", index)
-			break
+			coutinue_empty += 1
+			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!EMPTY LINE!!!!!!!!!!!!!!!!!!!!!")
+			if coutinue_empty > 10 {
+				fmt.Printf("line %d: empty !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!EMPTY LINE!!!!!!!!!!!!!!!!!!!!! break\n", index)
+				break
+			}
+			continue
 		}
+		coutinue_empty = 0
 		addresses := processRecord(records[index][0])
 		fmt.Printf("Record:%d ==============START=================\n", index)
 		firstAuthorAddr := getFirstAuthorAddr(addresses)
-		fmt.Println("firstAuthorAddr:"+firstAuthorAddr)
-		univ,country := getUnivAndCountry(firstAuthorAddr)
-		fmt.Printf("UV:{%s}:{%s}\n",univ,country)
-		findUniv(univ,country,univList)
+		fmt.Println("firstAuthorAddr:" + firstAuthorAddr)
+		univ, country := getUnivAndCountry(firstAuthorAddr)
+		fmt.Printf("UV:{%s}:{%s}\n", univ, country)
+		findUniv(univ, country, univList)
+		findUniv(univ, country, &currentUnivList)
 	}
-	//fmt.Println("Process over! new file Path " + dstPath)
+	writeUniversityList(&currentUnivList, dstPath)
+
 }
 
 func readCsvFile(filePath string) ([][]string, error) {
@@ -136,7 +149,6 @@ func readCsvFile(filePath string) ([][]string, error) {
 	}
 	return records, nil
 }
-
 
 func writeCsvFile(filePath string, records [][]string) ([][]string, error) {
 	f, error := os.Create(filePath)
@@ -177,111 +189,113 @@ func getFirstCorrespondingAuthorAddr(address string) string {
 	return addressList[0]
 }
 
-func getUnivAndCountry(address string) (string,string){
+func getUnivAndCountry(address string) (string, string) {
 	addr := strings.Split(address, ",")
 	length := len(addr)
 	if length < 2 {
 		fmt.Errorf("address error: %s", address)
-		return "",""
+		return "", ""
 	}
 	univ := addr[0]
 	country := addr[length-1]
 	return strings.TrimSpace(univ), strings.TrimSpace(country)
 }
-//Texas Christian Univ
-func findUniv(univ string, country string, univList * []University) bool {
 
-	for index,_:= range *univList {
+//Texas Christian Univ
+func findUniv(univ string, country string, univList *[]University) bool {
+
+	for index, _ := range *univList {
 		var isFind = false
 		u := &(*univList)[index]
 		if strings.EqualFold(univ, u.name) {
 			isFind = true
 		}
-		for _,aliasName := range u.aliasName{
+		for _, aliasName := range u.aliasName {
 			aliasName = strings.TrimSpace(aliasName)
 			if strings.EqualFold(univ, aliasName) {
 				isFind = true
-				if isFind{
+				if isFind {
 					fmt.Println("----------=============================------------")
 				}
 				break
 			}
 		}
-		if compareCountry(u.country,country){
-			if isFind{
-				u.count +=1
+		if compareCountry(u.country, country) {
+			if isFind {
+				u.count += 1
 				return true
 			}
 			if computeSimilarUniv(univ, u.name) {
-				u.similarName[univ] =univ
+				u.similarName[univ] = univ
 			}
-		}else {
-			fmt.Println( u.country+" not equal "+ country)
+		} else {
+			fmt.Println(u.country + " not equal " + country)
 		}
 	}
 
 	return false
 }
+
 //Texas Christian Univ
 func computeSimilarUniv(univ string, fullName string) bool {
-	newFullName := strings.ReplaceAll(fullName,"The","")
-	newFullName  = strings.ReplaceAll(newFullName," of","")
-	newFullName  = strings.ReplaceAll(newFullName,"University","Univ")
-	newFullName  = strings.ReplaceAll(newFullName," at "," ")
+	newFullName := strings.ReplaceAll(fullName, "The", "")
+	newFullName = strings.ReplaceAll(newFullName, " of", "")
+	newFullName = strings.ReplaceAll(newFullName, "University", "Univ")
+	newFullName = strings.ReplaceAll(newFullName, " at ", " ")
 	//newFullName  = strings.ReplaceAll(newFullName,"at","Univ")
 	//newFullName  = strings.ReplaceAll(newFullName,"University","Univ")
-	fmt.Println(univ+" Compare: "+newFullName)
+	fmt.Println(univ + " Compare: " + newFullName)
 	fullNameArray := strings.Split(newFullName, " ")
 	univArray := strings.Split(univ, " ")
 	if len(univArray) == 1 {
-		if univArray[0] == getAbbrName(fullNameArray){
+		if univArray[0] == getAbbrName(fullNameArray) {
 			return true
 		}
 	}
 	similarCount := 0
 	fullNameCount := len(fullNameArray)
-	for _,u := range univArray {
+	for _, u := range univArray {
 		if stringInArray(u, fullNameArray) {
-			if u== "Univ" {
-				fullNameCount -=1
-			}else{
-				similarCount +=1
+			if u == "Univ" {
+				fullNameCount -= 1
+			} else {
+				similarCount += 1
 			}
 		}
 	}
-	simV := float32(similarCount)/float32(fullNameCount)
-	fmt.Println(similarCount,fullNameCount)
-	if simV > 0.5  {
+	simV := float32(similarCount) / float32(fullNameCount)
+	fmt.Println(similarCount, fullNameCount)
+	if simV > 0.5 {
 		return true
 	}
 	return false
 }
 
-func  getAbbrName(fullNameArray []string ) string {
+func getAbbrName(fullNameArray []string) string {
 	var abbr string
 	for _, t := range fullNameArray {
-		t :=  strings.TrimSpace(t)
-		if t != ""{
+		t := strings.TrimSpace(t)
+		if t != "" {
 			abbr = abbr + t[0:1]
 		}
 	}
 	return abbr
 }
 
-func compareCountry(c string, country string) bool{
-	china := Country{name: "China",aliasName:[]string {"Peoples R China","China","中国"} }
-	uk := Country{name: "UK",aliasName:[]string {"UK","United Kingdom","England","英国"} }
-	countriesList := map[string]Country{"china":china,"UK":uk}
+func compareCountry(c string, country string) bool {
+	china := Country{name: "China", aliasName: []string{"Peoples R China", "China", "中国"}}
+	uk := Country{name: "UK", aliasName: []string{"UK", "United Kingdom", "England", "英国"}}
+	countriesList := map[string]Country{"china": china, "UK": uk}
 	//fmt.Println(countriesList)
-	if len(c) ==0 || len(strings.TrimSpace(c)) ==0 {
+	if len(c) == 0 || len(strings.TrimSpace(c)) == 0 {
 		return true
 	}
-	if strings.Contains(country,c){
+	if strings.Contains(country, c) {
 		return true
 	}
 	if val, ok := countriesList[c]; ok {
 		//do something here
-		if stringInArray(country,val.aliasName){
+		if stringInArray(country, val.aliasName) {
 			return true
 		}
 	}
@@ -296,14 +310,15 @@ func stringInArray(word string, array []string) bool {
 	for _, w := range array {
 		if strings.EqualFold(word, w) {
 			return true
-		}else {
-			if len(word) >2 && strings.HasSuffix(w,word){
+		} else {
+			if len(word) > 2 && strings.HasSuffix(w, word) {
 				return true
 			}
 		}
 	}
 	return false
 }
+
 //Chinese Univ Hong Kong, Sch Management & Econ, Shenzhen 518172, Guangdong, Peoples R China;
 //Univ Macau, Fac Educ, Room J507A,5th Floor,Silver Jubilee Bldg, Taipa, Macau, Peoples R China.;
 //Meyer, JP (corresponding author), Univ Western Ontario, Dept Psychol, Social Sci Ctr, London, ON N6A 5C2, Canada.
@@ -311,7 +326,7 @@ func stringInArray(word string, array []string) bool {
 //[Peng, Kelly Z.] Hong Kong Shue Yan Univ, North Point, Hong Kong, Peoples R China;
 //[Wong, Chi-Sum; Lau, Dora C.] Chinese Univ Hong Kong, Hong Kong, Hong Kong, Peoples R China
 
-func getFirstAuthorAddr(addressList []string) string{
+func getFirstAuthorAddr(addressList []string) string {
 	if len(addressList) == 0 {
 		return ""
 	}
@@ -326,14 +341,13 @@ func FormatBool(b bool) string {
 }
 
 func printMapKey(sm map[string]string) string {
-	keys := make([]string,0)
-	var str string =""
-	for k,_:= range sm {
+	keys := make([]string, 0)
+	var str string = ""
+	for k, _ := range sm {
 
-		str =str + k +";"
+		str = str + k + ";"
 		keys = append(keys, k)
 	}
 	//fmt.Printf("keys:%d\n", len(keys))
-	return strings.Join(keys,";")
+	return strings.Join(keys, ";")
 }
-
